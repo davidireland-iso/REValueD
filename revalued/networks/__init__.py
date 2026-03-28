@@ -1,11 +1,15 @@
-from .q_networks import DecoupledQNetwork, EnsembleDecoupledQNetwork
-from .layers import MLPResidualLayer, VectorizedLinear, VectorizedLinearHead, VectorisedMLPResidualLayer
+from .actor import Actor
+from .q_networks import DecoupledQNetwork, EnsembleDecoupledQNetwork, ActionConditionedDecoupledQNetwork
+from .layers import (MLPResidualLayer, VectorisedLinear, VectorisedLinearHead, VectorisedMLPResidualLayer,
+                     ActionEmbedding)
 
 __all__ = [
     'DecoupledQNetwork',
     'EnsembleDecoupledQNetwork',
     'MLPResidualLayer',
-    'VectorizedLinear',
-    'VectorizedLinearHead',
-    'VectorisedMLPResidualLayer'
+    'VectorisedLinear',
+    'VectorisedLinearHead',
+    'VectorisedMLPResidualLayer',
+    'Actor',
+    'ActionConditionedDecoupledQNetwork',
 ]

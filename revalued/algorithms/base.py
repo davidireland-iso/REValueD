@@ -1,11 +1,11 @@
-"""Base class for all RL algorithms."""
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Any, Tuple, Optional, Union
+from typing import Dict, Any, Optional, Union
 
 import numpy as np
 import torch
-import torch.nn as nn
+
+from revalued.networks.base import BaseQNetwork
 
 
 class BaseAlgorithm(ABC):
@@ -53,8 +53,8 @@ class BaseAlgorithm(ABC):
         self.device = device
 
         # Networks (initialised by child classes)
-        self.critic: Optional[nn.Module] = None
-        self.critic_target: Optional[nn.Module] = None
+        self.critic: Optional[BaseQNetwork] = None
+        self.critic_target: Optional[BaseQNetwork] = None
         self.optimiser: Optional[torch.optim.Optimizer] = None
 
         # Tracking
@@ -62,12 +62,12 @@ class BaseAlgorithm(ABC):
         self.grad_steps = 0
 
     @abstractmethod
-    def act(self, state: np.ndarray) -> np.ndarray:
+    def act(self, state: np.ndarray, **kwargs) -> np.ndarray:
         """Select action given state (with exploration)."""
         pass
 
     @abstractmethod
-    def greedy_act(self, state: np.ndarray) -> np.ndarray:
+    def greedy_act(self, state: np.ndarray, **kwargs) -> np.ndarray:
         """Select action greedily (without exploration)."""
         pass
 

@@ -21,7 +21,7 @@ class BaseQNetwork(nn.Module, ABC):
         self.num_actions = num_actions
 
     @abstractmethod
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
         """Forward pass through network.
 
         Args:

@@ -65,7 +65,7 @@ class REValueD(DecQN):
             lr=self.learning_rate
         )
 
-    def act(self, state: np.ndarray) -> np.ndarray:
+    def act(self, state: np.ndarray, **kwargs) -> np.ndarray:
         """Select action using randomised ensemble member.
 
         Args:
@@ -93,7 +93,7 @@ class REValueD(DecQN):
 
             return actions
 
-    def greedy_act(self, state: np.ndarray) -> np.ndarray:
+    def greedy_act(self, state: np.ndarray, **kwargs) -> np.ndarray:
         """Select action greedily using ensemble mean.
 
         Args:
@@ -162,7 +162,7 @@ class REValueD(DecQN):
         self.update_target_networks()
 
         return {
-            'loss': loss.item(),
+            'critic_loss': loss.item(),
             'q_value': q_value.mean().item(),
             'epsilon': self.epsilon
         }

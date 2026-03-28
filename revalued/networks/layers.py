@@ -7,15 +7,19 @@ import torch.nn as nn
 class MLPResidualLayer(nn.Module):
     """Residual block with two linear layers and ReLU activations."""
 
-    def __init__(self, dim: int):
+    def __init__(self, in_dim: int, out_dim: int | None = None):
         """Initialise residual layer.
 
         Args:
-            dim: Input/output dimension
+            in_dim: Input dimension
+            out_dim: Output dimension. Defaults to in_dim (square case).
         """
         super().__init__()
-        self.fc1 = nn.Linear(dim, dim)
-        self.fc2 = nn.Linear(dim, dim)
+        out_dim = out_dim or in_dim
+
+        self.fc1 = nn.Linear(in_dim, out_dim)
+        self.fc2 = nn.Linear(out_dim, out_dim)
+        self.projection = nn.Linear(in_dim, out_dim, bias=False) if in_dim != out_dim else None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass with residual connection.
@@ -26,13 +30,13 @@ class MLPResidualLayer(nn.Module):
         Returns:
             Output tensor with residual connection
         """
-        residual = x
+        residual = x if self.projection is None else self.projection(x)
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         return residual + x
 
 
-class VectorizedLinear(nn.Module):
+class VectorisedLinear(nn.Module):
     """Vectorised linear layer for ensemble networks.
 
     Applies different linear transformations for each ensemble member
@@ -76,7 +80,7 @@ class VectorizedLinear(nn.Module):
         return x @ self.weight + self.bias
 
 
-class VectorizedLinearHead(nn.Module):
+class VectorisedLinearHead(nn.Module):
     """Vectorised linear layer for multi-headed ensemble networks.
 
     Applies different linear transformations for each ensemble member
@@ -133,8 +137,8 @@ class VectorisedMLPResidualLayer(nn.Module):
             ensemble_size: Number of ensemble members
         """
         super().__init__()
-        self.fc1 = VectorizedLinear(dim, dim, ensemble_size)
-        self.fc2 = VectorizedLinear(dim, dim, ensemble_size)
+        self.fc1 = VectorisedLinear(dim, dim, ensemble_size)
+        self.fc2 = VectorisedLinear(dim, dim, ensemble_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass with residual connection.
@@ -149,3 +153,42 @@ class VectorisedMLPResidualLayer(nn.Module):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         return residual + x
+
+
+class ActionEmbedding(nn.Module):
+    """Action embedding layer with LayerNorm and MLP residual block.
+
+    Converts integer action indices into dense embeddings, processed
+    with pre-norm style LayerNorm and an MLP residual block.
+    """
+
+    def __init__(self, num_actions: int, num_heads: int, embedding_dim: int):
+        """Initialise action embedding layer.
+
+        Args:
+            num_actions: Number of discrete actions (vocabulary size)
+            num_heads: Number of heads
+            embedding_dim: Dimension of action embeddings
+        """
+        super().__init__()
+        self.embedding = nn.Embedding(num_actions * num_heads, embedding_dim)
+        self.pre_norm = nn.LayerNorm(embedding_dim)
+        self.residual = MLPResidualLayer(embedding_dim)
+        self.post_norm = nn.LayerNorm(embedding_dim)
+        offset = torch.arange(num_heads) * num_actions
+        self.register_buffer("offset", offset)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass through action embedding layer.
+
+        Args:
+            x: Integer action tensor of arbitrary shape (...,)
+
+        Returns:
+            Action embeddings of shape (..., embedding_dim)
+        """
+        x = self.embedding(x + self.offset)
+        x = self.pre_norm(x)
+        x = self.residual(x)
+        x = self.post_norm(x)
+        return x

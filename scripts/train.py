@@ -5,7 +5,7 @@ import yaml
 
 from loguru import logger
 
-from revalued.algorithms import DecQN, REValueD
+from revalued.algorithms import DecQN, REValueD, ActionConditionedDecQN
 from revalued.trainers import Trainer
 from revalued.utils import set_seeds, make_env
 
@@ -19,7 +19,9 @@ def load_config(config_path: Path) -> dict:
     Returns:
         Configuration dictionary
     """
-    with open(config_path, 'r') as f:
+    if not str(config_path).endswith(".yaml"):
+        config_path = Path(str(config_path) + ".yaml")
+    with open(Path('configs', 'experiments', config_path), 'r') as f:
         return yaml.safe_load(f)
 
 
@@ -105,6 +107,12 @@ def main():
         )
     elif algorithm_name == 'REValueD':
         algorithm = REValueD(
+            state_dim=state_dim,
+            action_space=action_space,
+            **algorithm_config
+        )
+    elif algorithm_name == 'ActionConditionedDecQN':
+        algorithm = ActionConditionedDecQN(
             state_dim=state_dim,
             action_space=action_space,
             **algorithm_config

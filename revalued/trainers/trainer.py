@@ -189,13 +189,18 @@ class Trainer:
 
         # Log results
         train_metrics = self.metrics.get_all_averages()
-        logger.info(
+        logging_info = (
             f"Steps: {self.env_steps} | "
             f"Episodes: {self.episodes} | "
             f"Train reward: {train_metrics.get('episode_reward', 0):.2f} | "
             f"Eval score: {mean_score:.2f} ± {std_score:.2f} | "
-            f"Loss: {train_metrics.get('loss', 0):.4f} | "
+            f"Critic Loss: {train_metrics.get('critic_loss', 0):.4f} | "
             f"Q-value: {train_metrics.get('q_value', 0):.2f}"
+        )
+        if 'actor_loss' in train_metrics:
+            logging_info += f" | Actor loss: {train_metrics.get('actor_loss', 0):.2f}"
+        logger.info(
+            logging_info
         )
 
         # Save best model
