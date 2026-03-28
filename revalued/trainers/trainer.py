@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 
 import numpy as np
+import wandb
 from loguru import logger
 
 from ..algorithms.base import BaseAlgorithm
@@ -20,7 +21,8 @@ class Trainer:
             self,
             algorithm: BaseAlgorithm,
             config: Dict[str, Any],
-            save_dir: Optional[Path] = None
+            save_dir: Optional[Path] = None,
+            log_wandb: bool = False
     ):
         """Initialise trainer.
 
@@ -28,11 +30,13 @@ class Trainer:
             algorithm: RL algorithm to train
             config: Training configuration dictionary
             save_dir: Directory to save models and logs
+            log_wandb: Whether to log to Weights & Biases
         """
         self.algorithm = algorithm
         self.config = config
         self.save_dir = save_dir or Path('experiments')
         self.save_dir.mkdir(parents=True, exist_ok=True)
+        self.log_wandb = log_wandb
 
         # Extract config values
         self.domain = config['environment']['domain']
@@ -74,8 +78,17 @@ class Trainer:
 
         # Tracking
         self.env_steps = 0
+        self.gradient_steps = 0
         self.episodes = 0
         self.best_eval_score = -np.inf
+
+        # Initialise wandb
+        if self.log_wandb:
+            wandb.init(
+                project="action-conditioning",
+                config=config,
+                name=f"{config['experiment']['name']}_seed_{self.seed}"
+            )
 
     def train(self) -> None:
         """Run full training loop."""
@@ -113,6 +126,14 @@ class Trainer:
                         batch = self.replay_buffer.sample()
                         update_metrics = self.algorithm.update(*batch)
                         self.metrics.update(**update_metrics)
+                        self.gradient_steps += 1
+
+                        if self.log_wandb:
+                            wandb.log({
+                                **{f"train/{k}": v for k, v in update_metrics.items()},
+                                "gradient_steps": self.gradient_steps,
+                                "env_steps": self.env_steps
+                            })
 
                 # Evaluation
                 if self.env_steps % self.eval_frequency == 0:
@@ -126,8 +147,18 @@ class Trainer:
 
             self.metrics.update(episode_reward=score)
 
+            if self.log_wandb:
+                wandb.log({
+                    "train/episode_reward": score,
+                    "env_steps": self.env_steps,
+                    "episodes": self.episodes
+                })
+
         logger.info("Training completed!")
         self._save_checkpoint(final=True)
+
+        if self.log_wandb:
+            wandb.finish()
 
     def process_n_step_transitions(self, n_step_buffer: List[Tuple[np.ndarray, np.ndarray, float]],
                                    next_state: np.ndarray, terminated: bool) -> None:
@@ -187,6 +218,13 @@ class Trainer:
         std_score = np.std(scores)
         self.metrics.update(eval_score=mean_score)
 
+        if self.log_wandb:
+            wandb.log({
+                "eval/score_mean": mean_score,
+                "eval/score_std": std_score,
+                "env_steps": self.env_steps
+            })
+
         # Log results
         train_metrics = self.metrics.get_all_averages()
         logging_info = (
@@ -207,6 +245,12 @@ class Trainer:
         if mean_score > self.best_eval_score:
             self.best_eval_score = mean_score
             self._save_checkpoint(best=True)
+
+            if self.log_wandb:
+                wandb.log({
+                    "eval/best_score": self.best_eval_score,
+                    "env_steps": self.env_steps
+                })
 
     def _save_checkpoint(self, best: bool = False, final: bool = False) -> None:
         """Save model checkpoint.

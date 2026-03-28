@@ -51,6 +51,11 @@ def main():
         default=None,
         help='Directory to save results'
     )
+    parser.add_argument(
+        '--log-wandb',
+        action='store_true',
+        help='Enable Weights & Biases logging'
+    )
 
     args = parser.parse_args()
 
@@ -69,7 +74,7 @@ def main():
 
     # Create save directory
     if args.save_dir:
-        save_dir = args.save_dir
+        save_dir = Path('experiments', args.save_dir)
     else:
         save_dir = Path('experiments') / config['experiment']['name'] / f'seed_{seed}'
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -124,7 +129,8 @@ def main():
     trainer = Trainer(
         algorithm=algorithm,
         config=config,
-        save_dir=save_dir
+        save_dir=save_dir,
+        log_wandb=args.log_wandb
     )
 
     trainer.train()
