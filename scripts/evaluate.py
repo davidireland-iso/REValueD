@@ -3,10 +3,11 @@ import argparse
 from pathlib import Path
 import yaml
 import numpy as np
+import wandb
 
 from loguru import logger
 
-from revalued.algorithms import DecQN, REValueD
+from revalued.algorithms import DecQN, REValueD, ActionConditionedDecQN
 from revalued.utils import set_seeds, make_env
 
 
@@ -47,6 +48,12 @@ def load_model(model_path: Path, config_path: Path):
         )
     elif algorithm_name == 'REValueD':
         algorithm = REValueD(
+            state_dim=state_dim,
+            action_space=action_space,
+            **algorithm_config
+        )
+    elif algorithm_name == 'ActionConditionedDecQN':
+        algorithm = ActionConditionedDecQN(
             state_dim=state_dim,
             action_space=action_space,
             **algorithm_config
@@ -95,6 +102,11 @@ def main():
         '--save-video',
         action='store_true',
         help='Save videos of episodes'
+    )
+    parser.add_argument(
+        '--log-wandb',
+        action='store_true',
+        help='Log evaluation results to Weights & Biases'
     )
 
     args = parser.parse_args()
@@ -150,6 +162,23 @@ def main():
     logger.info(f"Min Score: {min_score:.2f}")
     logger.info(f"Max Score: {max_score:.2f}")
     logger.info("=" * 50)
+
+    if args.log_wandb:
+        wandb.init(
+            project="action-conditioning",
+            config=config,
+            name=f"eval_{config['experiment']['name']}_seed_{args.seed}_inference_run",
+            tags=["inference"],
+        )
+        wandb.log({
+            "eval/score_mean": mean_score,
+            "eval/score_std": std_score,
+            "eval/score_min": min_score,
+            "eval/score_max": max_score,
+            "eval/episodes": args.episodes,
+            "eval/seed": args.seed,
+        })
+        wandb.finish()
 
 
 if __name__ == '__main__':

@@ -25,6 +25,8 @@ class ActionConditionedDecQN(BaseAlgorithm):
         grad_clip: float = 40.0,
         actor_lr: float = 1e-3,
         action_dim: int = 32,
+        action_selection: str = "policy",
+        per_head_loss: bool = False,
         **kwargs
     ):
         """Initialise algorithm.
@@ -39,6 +41,9 @@ class ActionConditionedDecQN(BaseAlgorithm):
             grad_clip: Gradient clipping threshold
             actor_lr: Learning rate for actor
             action_dim: Dimension of action space
+            action_selection: Action selection method ("policy" or "critic")
+            per_head_loss: If True, compute independent Bellman loss per head.
+                           If False, aggregate Q-values across heads (DecQN-style).
             **kwargs: Additional arguments passed to BaseAlgorithm
         """
         super().__init__(state_dim=state_dim, action_space=action_space, **kwargs)
@@ -50,6 +55,8 @@ class ActionConditionedDecQN(BaseAlgorithm):
         # Algorithm parameters
         self.n_steps = n_steps
         self.grad_clip = grad_clip
+        self.action_selection = action_selection
+        self.per_head_loss = per_head_loss
 
         # Action space info
         self.num_heads = len(action_space)
@@ -89,7 +96,7 @@ class ActionConditionedDecQN(BaseAlgorithm):
             hidden_dim=self.hidden_size,
             num_actions=self.max_action_dim,
             num_heads=self.num_heads,
-        )
+        ).to(self.device)
         self.actor_optimiser = torch.optim.Adam(
             self.actor.parameters(),
             lr=self.actor_lr
@@ -115,11 +122,12 @@ class ActionConditionedDecQN(BaseAlgorithm):
             # Exploit
             return self.greedy_act(state, **kwargs)
 
-    def greedy_act(self, state: np.ndarray, **kwargs) -> np.ndarray:
-        """Select action greedily based on Q-values.
+    def greedy_act(self, state: np.ndarray, deterministic: bool = True, **kwargs) -> np.ndarray:
+        """Select action greedily.
 
         Args:
             state: Current state
+            deterministic: If True, return deterministic greedy action
 
         Returns:
             Greedy action
@@ -127,9 +135,15 @@ class ActionConditionedDecQN(BaseAlgorithm):
         state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
-            actions, _, _ = self.actor.sample(state_tensor)
-            # q_values = self.critic.forward(state_tensor, actions=action_estimates)
-            # actions = q_values.argmax(dim=-1).cpu().numpy().flatten()
+            logits = self.actor(state_tensor)
+            if deterministic:
+                actions = logits.argmax(dim=-1)
+            else:
+                actions, _, _ = self.actor.sample(logits=logits)
+
+            if self.action_selection == "critic":
+                q_values = self.critic.forward(state_tensor, actions=actions)
+                actions = q_values.argmax(dim=-1)
 
         return actions.cpu().numpy().flatten()
 
@@ -153,31 +167,15 @@ class ActionConditionedDecQN(BaseAlgorithm):
         Returns:
             Dictionary of metrics
         """
-        # Get Q-values for selected actions
-        q_values = self.critic.forward(states, actions=actions)
-        selected_q_values = q_values.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
-        q_value = selected_q_values.mean(dim=-1, keepdim=True)
-
-        # Compute targets using double Q-learning
-        with torch.no_grad():
-            # Query the current policy
-            next_estimated_actions, _, _ = self.actor.sample(next_states)
-
-            # Get best actions from online network
-            next_q_values = self.critic.forward(next_states, actions=next_estimated_actions)
-            next_actions = next_q_values.argmax(dim=-1)
-
-            # Evaluate actions using target network
-            next_q_values_target = self.critic_target.forward(next_states, actions=next_estimated_actions)
-            next_q_value = next_q_values_target.gather(
-                -1, next_actions.unsqueeze(-1)
-            ).squeeze(-1).mean(dim=-1, keepdim=True)
-
-            # Compute n-step targets
-            targets = rewards + (self.gamma ** self.n_steps) * (1 - dones) * next_q_value
-
-        # Compute loss
-        loss = self.loss_fn(q_value, targets)
+        # Compute critic loss
+        if self.per_head_loss:
+            loss, q_value = self._compute_per_head_critic_loss(
+                states, actions, rewards, next_states, dones
+            )
+        else:
+            loss, q_value = self._compute_aggregated_critic_loss(
+                states, actions, rewards, next_states, dones
+            )
 
         # Optimise
         self.optimiser.zero_grad()
@@ -185,14 +183,13 @@ class ActionConditionedDecQN(BaseAlgorithm):
         clip_grad_norm_(self.critic.parameters(), self.grad_clip)
         self.optimiser.step()
 
-        # Update the actor
+        # Update actor
         with torch.no_grad():
             estimated_actions, _, _ = self.actor.sample(states)
             curr_q_values = self.critic.forward(states, actions=estimated_actions)
             curr_actions = curr_q_values.argmax(dim=-1)
 
         _, _, logits = self.actor.sample(state=states, actions=curr_actions)
-        # actor_loss = -log_probs.mean()
         actor_loss = self.cross_entropy_loss(
             logits.reshape(-1, logits.size(-1)),
             curr_actions.reshape(-1)
@@ -212,6 +209,75 @@ class ActionConditionedDecQN(BaseAlgorithm):
             'epsilon': self.epsilon,
             'actor_loss': actor_loss.item(),
         }
+
+    def _compute_aggregated_critic_loss(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        next_states: torch.Tensor,
+        dones: torch.Tensor,
+    ):
+        """Compute critic loss with Q-values aggregated across heads (DecQN-style).
+
+        Returns:
+            Tuple of (loss, q_value) where q_value is the mean across heads.
+        """
+        q_values = self.critic.forward(states, actions=actions)
+        selected_q_values = q_values.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+        q_value = selected_q_values.mean(dim=-1, keepdim=True)
+
+        with torch.no_grad():
+            next_estimated_actions, _, _ = self.actor.sample(next_states)
+            next_q_values = self.critic.forward(next_states, actions=next_estimated_actions)
+            next_actions = next_q_values.argmax(dim=-1)
+
+            next_q_values_target = self.critic_target.forward(next_states, actions=next_estimated_actions)
+            next_q_value = next_q_values_target.gather(
+                -1, next_actions.unsqueeze(-1)
+            ).squeeze(-1).mean(dim=-1, keepdim=True)
+
+            targets = rewards + (self.gamma ** self.n_steps) * (1 - dones) * next_q_value
+
+        loss = self.loss_fn(q_value, targets)
+        return loss, q_value
+
+    def _compute_per_head_critic_loss(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        next_states: torch.Tensor,
+        dones: torch.Tensor,
+    ):
+        """Compute independent Bellman loss per head.
+
+        Each head gets its own Q-value and target, treating each
+        sub-action dimension as an independent agent.
+
+        Returns:
+            Tuple of (loss, q_value) where q_value is the mean across heads (for logging).
+        """
+        q_values = self.critic.forward(states, actions=actions)
+        selected_q_values = q_values.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+        # selected_q_values: (batch_size, num_heads)
+
+        with torch.no_grad():
+            next_estimated_actions, _, _ = self.actor.sample(next_states)
+            next_q_values = self.critic.forward(next_states, actions=next_estimated_actions)
+            next_actions = next_q_values.argmax(dim=-1)
+
+            next_q_values_target = self.critic_target.forward(next_states, actions=next_estimated_actions)
+            next_selected = next_q_values_target.gather(
+                -1, next_actions.unsqueeze(-1)
+            ).squeeze(-1)
+            # next_selected: (batch_size, num_heads)
+
+            targets = rewards + (self.gamma ** self.n_steps) * (1 - dones) * next_selected
+
+        loss = self.loss_fn(selected_q_values, targets)
+        q_value = selected_q_values.mean(dim=-1, keepdim=True)
+        return loss, q_value
 
     def load(self, path: Union[str, Path], infer_architecture: bool = True) -> None:
         """Load model parameters.

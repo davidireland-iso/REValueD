@@ -28,7 +28,7 @@ training:
   num_updates: 1
   eval_frequency: 25000
   eval_episodes: 5
-  save_frequency: 25000
+  save_frequency: 250000000
 
 replay_buffer:
   capacity: 500000

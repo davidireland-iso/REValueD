@@ -246,11 +246,11 @@ class Trainer:
             self.best_eval_score = mean_score
             self._save_checkpoint(best=True)
 
-            if self.log_wandb:
-                wandb.log({
-                    "eval/best_score": self.best_eval_score,
-                    "env_steps": self.env_steps
-                })
+        if self.log_wandb:
+            wandb.log({
+                "eval/best_score": self.best_eval_score,
+                "env_steps": self.env_steps
+            })
 
     def _save_checkpoint(self, best: bool = False, final: bool = False) -> None:
         """Save model checkpoint.
