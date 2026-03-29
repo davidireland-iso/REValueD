@@ -191,7 +191,7 @@ class ActionConditionedDecoupledQNetwork(DecoupledQNetwork):
         # Flatten and project
         other_embs = other_embs.flatten(start_dim=2)
         # (batch_size, num_heads, (num_heads-1) * d)
-        action_ctx = torch.relu(self.action_projection(other_embs))
+        action_ctx = self.action_projection(other_embs)
         # action_ctx: (batch_size, num_heads, hidden_dim)
 
         # Expand state and combine with action context

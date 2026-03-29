@@ -1,5 +1,5 @@
 experiment:
-  name: "walker_run_decqn"
+  name: "walker_run_ac_decqn"
   seed: 42
 
 environment:
@@ -9,7 +9,7 @@ environment:
   factorised: true
 
 algorithm:
-  name: "DecQN"
+  name: "ActionConditionedDecQN"
   hidden_size: 512
   batch_size: 256
   learning_rate: 0.0001
@@ -21,6 +21,8 @@ algorithm:
   n_steps: 3
   grad_clip: 40.0
   device: "cpu"
+  actor_lr: 0.0001
+  action_dim: 32
 
 training:
   max_env_steps: 1_000_000
