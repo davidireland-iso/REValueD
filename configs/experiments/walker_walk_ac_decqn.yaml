@@ -1,5 +1,5 @@
 experiment:
-  name: "walker_walk_ac_decqn"
+  name: "walker_walk_ac_decqn_fusion"
   seed: 42
 
 environment:

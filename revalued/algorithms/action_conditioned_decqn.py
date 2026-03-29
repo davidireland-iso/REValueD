@@ -122,7 +122,7 @@ class ActionConditionedDecQN(BaseAlgorithm):
             # Exploit
             return self.greedy_act(state, **kwargs)
 
-    def greedy_act(self, state: np.ndarray, deterministic: bool = True, **kwargs) -> np.ndarray:
+    def greedy_act(self, state: np.ndarray, deterministic: bool = False, **kwargs) -> np.ndarray:
         """Select action greedily.
 
         Args:

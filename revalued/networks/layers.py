@@ -129,16 +129,19 @@ class VectorisedLinearHead(nn.Module):
 class VectorisedMLPResidualLayer(nn.Module):
     """Vectorised residual block for ensemble networks."""
 
-    def __init__(self, dim: int, ensemble_size: int):
+    def __init__(self, in_dim: int, out_dim: int | None = None, ensemble_size: int = 1):
         """Initialise vectorised residual layer.
 
         Args:
-            dim: Input/output dimension
-            ensemble_size: Number of ensemble members
+            in_dim: Input dimension
+            out_dim: Output dimension. Defaults to in_dim.
+            ensemble_size: Number of ensemble members (or heads)
         """
         super().__init__()
-        self.fc1 = VectorisedLinear(dim, dim, ensemble_size)
-        self.fc2 = VectorisedLinear(dim, dim, ensemble_size)
+        out_dim = out_dim or in_dim
+        self.fc1 = VectorisedLinear(in_dim, out_dim, ensemble_size)
+        self.fc2 = VectorisedLinear(out_dim, out_dim, ensemble_size)
+        self.projection = VectorisedLinear(in_dim, out_dim, ensemble_size) if in_dim != out_dim else None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass with residual connection.
@@ -149,7 +152,7 @@ class VectorisedMLPResidualLayer(nn.Module):
         Returns:
             Output tensor with residual connection
         """
-        residual = x
+        residual = x if self.projection is None else self.projection(x)
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         return residual + x

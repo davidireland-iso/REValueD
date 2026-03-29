@@ -84,7 +84,7 @@ class EnsembleDecoupledQNetwork(BaseQNetwork):
 
         # Ensemble network layers
         self.input_layer = VectorisedLinear(state_dim, hidden_dim, ensemble_size)
-        self.resnet_layer = VectorisedMLPResidualLayer(hidden_dim, ensemble_size)
+        self.resnet_layer = VectorisedMLPResidualLayer(hidden_dim, ensemble_size=ensemble_size)
         self.layer_norm = nn.LayerNorm(hidden_dim)
         self.output_heads = VectorisedLinearHead(hidden_dim, num_actions, ensemble_size, num_heads)
 
@@ -145,9 +145,11 @@ class ActionConditionedDecoupledQNetwork(DecoupledQNetwork):
             (num_heads - 1) * action_embedding_dim, hidden_dim
         ))
 
-        # If concat, the output heads take 2 * hidden_dim input
+        # Post-fusion processing: project fused representation and apply non-linearity
         head_input_dim = hidden_dim * 2 if conditioning == "concat" else hidden_dim
-        self.output_heads = VectorisedLinear(head_input_dim, num_actions, num_heads)
+        self.fusion_resnet = VectorisedMLPResidualLayer(head_input_dim, out_dim=hidden_dim, ensemble_size=num_heads)
+        self.fusion_layer_norm = nn.LayerNorm(hidden_dim)
+        self.output_heads = VectorisedLinear(hidden_dim, num_actions, num_heads)
 
         # Precompute leave-one-out indices: (num_heads, num_heads - 1)
         idx = torch.arange(num_heads)
@@ -207,6 +209,7 @@ class ActionConditionedDecoupledQNetwork(DecoupledQNetwork):
 
         # VectorisedLinear expects (num_heads, batch_size, features)
         x = x.transpose(0, 1)
+        x = self.fusion_layer_norm(self.fusion_resnet(x))
         vals = self.output_heads(x).transpose(0, 1)
         # vals: (batch_size, num_heads, num_actions)
 
