@@ -133,7 +133,7 @@ class ActionConditionedDecoupledQNetwork(DecoupledQNetwork):
         conditioning: str = "concat",  # "concat" or "add"
     ) -> None:
         super().__init__(state_dim, hidden_dim, num_actions, num_heads)
-        assert conditioning == "concat" or conditioning == "concat", f"{conditioning} not supported"
+        assert conditioning == "concat" or conditioning == "add", f"{conditioning} not supported"
         self.action_embedding_dim = action_embedding_dim
         self.conditioning = conditioning
 
@@ -145,11 +145,8 @@ class ActionConditionedDecoupledQNetwork(DecoupledQNetwork):
             (num_heads - 1) * action_embedding_dim, hidden_dim
         ))
 
-        # Post-fusion processing: project fused representation and apply non-linearity
         head_input_dim = hidden_dim * 2 if conditioning == "concat" else hidden_dim
-        self.fusion_resnet = VectorisedMLPResidualLayer(head_input_dim, out_dim=hidden_dim, ensemble_size=num_heads)
-        self.fusion_layer_norm = nn.LayerNorm(hidden_dim)
-        self.output_heads = VectorisedLinear(hidden_dim, num_actions, num_heads)
+        self.output_heads = VectorisedLinear(head_input_dim, num_actions, num_heads)
 
         # Precompute leave-one-out indices: (num_heads, num_heads - 1)
         idx = torch.arange(num_heads)
@@ -194,7 +191,7 @@ class ActionConditionedDecoupledQNetwork(DecoupledQNetwork):
         # Flatten and project
         other_embs = other_embs.flatten(start_dim=2)
         # (batch_size, num_heads, (num_heads-1) * d)
-        action_ctx = self.action_projection(other_embs)
+        action_ctx = torch.relu(self.action_projection(other_embs))
         # action_ctx: (batch_size, num_heads, hidden_dim)
 
         # Expand state and combine with action context
@@ -209,7 +206,6 @@ class ActionConditionedDecoupledQNetwork(DecoupledQNetwork):
 
         # VectorisedLinear expects (num_heads, batch_size, features)
         x = x.transpose(0, 1)
-        x = self.fusion_layer_norm(self.fusion_resnet(x))
         vals = self.output_heads(x).transpose(0, 1)
         # vals: (batch_size, num_heads, num_actions)
 
