@@ -185,8 +185,7 @@ class ActionConditionedDecQN(BaseAlgorithm):
 
         # Update actor
         with torch.no_grad():
-            estimated_actions, _, _ = self.actor.sample(states)
-            curr_q_values = self.critic.forward(states, actions=estimated_actions)
+            curr_q_values = self.critic.forward(states, actions=actions)
             curr_actions = curr_q_values.argmax(dim=-1)
 
         _, _, logits = self.actor.sample(state=states, actions=curr_actions)
