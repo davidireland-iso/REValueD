@@ -87,7 +87,8 @@ class Trainer:
             wandb.init(
                 project="action-conditioning",
                 config=config,
-                name=f"{config['experiment']['name']}_seed_{self.seed}"
+                name=f"{config['experiment']['name']}_seed_{self.seed}",
+                notes=config['experiment'].get('notes', None)
             )
 
     def train(self) -> None:
